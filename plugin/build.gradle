@@ -1,0 +1,48 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+plugins {
+	id 'java-gradle-plugin'
+	id 'org.jetbrains.kotlin.jvm' version '2.2.10'
+	id 'maven-publish'
+}
+
+group = 'com.github.draken'
+version = '1.0.0'
+
+repositories {
+	mavenCentral()
+	gradlePluginPortal()
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_17
+	targetCompatibility = JavaVersion.VERSION_17
+}
+
+kotlin {
+	compilerOptions {
+		jvmTarget = JvmTarget.JVM_17
+	}
+}
+
+publishing {
+	publications {
+		mavenJava(MavenPublication) {
+			from components.java
+		}
+	}
+}
+
+gradlePlugin {
+	plugins {
+		serializationPlugin {
+			id = 'org.draken.serialization'
+			implementationClass = 'org.draken.serialization.plugin.SerializationPlugin'
+		}
+	}
+}
+
+dependencies {
+	implementation gradleApi()
+	implementation localGroovy()
+}

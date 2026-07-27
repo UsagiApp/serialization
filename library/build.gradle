@@ -1,0 +1,42 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+plugins {
+	id 'java-library'
+	id 'org.jetbrains.kotlin.jvm' version '2.2.10'
+	id 'maven-publish'
+}
+
+group = 'com.github.draken'
+version = '1.0.0'
+
+repositories {
+	mavenCentral()
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_17
+	targetCompatibility = JavaVersion.VERSION_17
+}
+
+kotlin {
+	compilerOptions {
+		jvmTarget = JvmTarget.JVM_17
+		freeCompilerArgs.addAll(
+			"-opt-in=kotlinx.serialization.ExperimentalSerializationApi",
+			"-opt-in=kotlinx.serialization.InternalSerializationApi"
+		)
+	}
+}
+
+publishing {
+	publications {
+		mavenJava(MavenPublication) {
+			from components.java
+		}
+	}
+}
+
+dependencies {
+    implementation "org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:1.11.0"
+	implementation "org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.11.0"
+}
