@@ -23,6 +23,12 @@ class SerializationPlugin : Plugin<Project> {
 				it.attribute(stripped)
 			}
 
+			proj.dependencies.artifactTypes.configureEach { artifactType ->
+				if (artifactType.name == org.gradle.api.artifacts.type.ArtifactTypeDefinition.JAR_TYPE) {
+					artifactType.attributes.attribute(stripped, false)
+				}
+			}
+
 			proj.dependencies.registerTransform(StripDuplicateClassTransform::class.java) {
 				it.from.attribute(stripped, false)
 				it.to.attribute(stripped, true)
