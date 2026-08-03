@@ -2,8 +2,13 @@ package org.draken.serialization.plugin
 
 import org.gradle.api.Plugin
 import org.gradle.api.Project
-import java.io.File
-import java.io.FileOutputStream
+import org.gradle.api.artifacts.transform.InputArtifact
+import org.gradle.api.artifacts.transform.TransformAction
+import org.gradle.api.artifacts.transform.TransformOutputs
+import org.gradle.api.artifacts.transform.TransformParameters
+import org.gradle.api.attributes.Attribute
+import org.gradle.api.file.FileSystemLocation
+import org.gradle.api.provider.Provider
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
@@ -11,123 +16,66 @@ import java.util.zip.ZipOutputStream
 @Suppress("unused")
 class SerializationPlugin : Plugin<Project> {
 	override fun apply(project: Project) {
+		val stripped = Attribute.of("serialization-stripped", Boolean::class.javaObjectType)
+
 		project.allprojects { proj ->
-			proj.tasks.configureEach { task ->
-				if (task.name.contains(Regex("DuplicateClasses|minify|mergeReleaseJavaResource"))) {
-					val backups = mutableMapOf<String, ByteArray?>()
-					task.doFirst {
-						val inputFiles = mutableListOf<File>()
-						try {
-							inputFiles.addAll(task.inputs.files.files)
-						} catch (_: Exception) {}
+			proj.dependencies.attributesSchema {
+				it.attribute(stripped)
+			}
 
-						try {
-							proj.configurations.filter { it.isCanBeResolved }.forEach { config ->
-								try {
-									inputFiles.addAll(config.incoming.files.files)
-								} catch (_: Exception) {}
-							}
-						} catch (_: Exception) {}
+			proj.dependencies.registerTransform(StripDuplicateClassTransform::class.java) {
+				it.from.attribute(stripped, false)
+				it.to.attribute(stripped, true)
+			}
 
-						inputFiles.toList().filter { it.exists() }.distinct().forEach { file ->
-							if (file.isDirectory) {
-								if (!isUsagiSerializationLibrary(file)) {
-									val targetClassFile = File(file, TARGET_CLASS_NAME)
-									if (targetClassFile.exists()) {
-										backups[targetClassFile.absolutePath] = targetClassFile.readBytes()
-										targetClassFile.setWritable(true)
-										targetClassFile.delete()
-									}
-								}
-								file.walk().filter { it.isFile && it.name.endsWith(".jar") }.forEach { jarFile ->
-									val backup = stripTargetClass(jarFile)
-									if (backup != null) {
-										backups[jarFile.absolutePath] = backup
-									}
-								}
-							} else if (file.name.endsWith(".jar")) {
-								val backup = stripTargetClass(file)
-								if (backup != null) {
-									backups[file.absolutePath] = backup
-								}
-							}
-						}
-					}
-					task.doLast {
-						backups.forEach { (path, bytes) ->
-							val f = File(path)
-							if (bytes != null) {
-								f.parentFile?.mkdirs()
-								f.setWritable(true)
-								f.writeBytes(bytes)
-							} else {
-								if (f.exists()) {
-									f.setWritable(true)
-									f.delete()
-								}
-							}
-						}
+			proj.afterEvaluate {
+				proj.configurations.configureEach { config ->
+					if (config.isCanBeResolved) {
+						config.attributes.attribute(stripped, true)
 					}
 				}
 			}
 		}
 	}
+}
 
-	private fun isUsagiSerializationLibrary(file: File): Boolean {
-		val path = file.absolutePath.replace('\\', '/')
-		return file.name.startsWith("library") ||
-				path.contains("com.github.UsagiApp.serialization") ||
-				path.contains("serialization/library") ||
-				path.contains("UsagiApp.serialization")
-	}
+abstract class StripDuplicateClassTransform : TransformAction<TransformParameters.None> {
+	@get:InputArtifact
+	abstract val inputArtifact: Provider<FileSystemLocation>
 
-	private fun stripTargetClass(file: File): ByteArray? {
-		if (isUsagiSerializationLibrary(file)) return null
+	override fun transform(outputs: TransformOutputs) {
+		val input = inputArtifact.get().asFile
+		if (!input.name.endsWith(".jar") || !input.name.contains("kotlinx-serialization-core")) {
+			outputs.file(input)
+			return
+		}
 
-		val entryExists = try {
-			ZipFile(file).use { zf ->
-				zf.getEntry(TARGET_CLASS_NAME) != null
-			}
+		val targetClassName = "kotlinx/serialization/internal/PluginGeneratedSerialDescriptor.class"
+
+		val hasTarget = try {
+			ZipFile(input).use { zf -> zf.getEntry(targetClassName) != null }
 		} catch (_: Exception) {
 			false
 		}
 
-		if (!entryExists) return null
+		if (!hasTarget) {
+			outputs.file(input)
+			return
+		}
 
-		val bytes = file.readBytes()
-		val temp = File(file.parentFile, "${file.name}.tmp")
-
-		try {
-			ZipFile(file).use { src ->
-				ZipOutputStream(FileOutputStream(temp)).use { out ->
-					val entries = src.entries()
-					while (entries.hasMoreElements()) {
-						val entry = entries.nextElement()
-						if (entry.name != TARGET_CLASS_NAME) {
-							out.putNextEntry(ZipEntry(entry.name))
-							src.getInputStream(entry).use { input ->
-								input.copyTo(out)
-							}
-							out.closeEntry()
-						}
+		val outputFile = outputs.file("${input.nameWithoutExtension}-stripped.jar")
+		ZipFile(input).use { src ->
+			ZipOutputStream(outputFile.outputStream()).use { out ->
+				val entries = src.entries()
+				while (entries.hasMoreElements()) {
+					val entry = entries.nextElement()
+					if (entry.name != targetClassName) {
+						out.putNextEntry(ZipEntry(entry.name))
+						src.getInputStream(entry).use { it.copyTo(out) }
+						out.closeEntry()
 					}
 				}
 			}
-
-			file.setWritable(true)
-			file.writeBytes(temp.readBytes())
-			temp.delete()
-			return bytes
-		} catch (e: Exception) {
-			println("[SerializationPlugin] Exception while stripping $file: ${e.message}")
-			if (temp.exists()) {
-				temp.delete()
-			}
-			return null
 		}
-	}
-
-	companion object {
-		private const val TARGET_CLASS_NAME = "kotlinx/serialization/internal/PluginGeneratedSerialDescriptor.class"
 	}
 }
