@@ -11,9 +11,9 @@ import java.util.zip.ZipOutputStream
 @Suppress("unused")
 class SerializationPlugin : Plugin<Project> {
 	override fun apply(project: Project) {
-		project.gradle.projectsEvaluated {
-			project.rootProject.allprojects { proj ->
-				proj.tasks.matching { it.name.contains(Regex("DuplicateClasses|minify|mergeReleaseJavaResource")) }.configureEach { task ->
+		project.allprojects { proj ->
+			proj.tasks.configureEach { task ->
+				if (task.name.contains(Regex("DuplicateClasses|minify|mergeReleaseJavaResource"))) {
 					val backups = mutableMapOf<String, ByteArray?>()
 					task.doFirst {
 						val inputFiles = mutableListOf<File>()
@@ -22,11 +22,11 @@ class SerializationPlugin : Plugin<Project> {
 						} catch (_: Exception) {}
 
 						try {
-							inputFiles.addAll(
-								proj.configurations
-									.filter { it.isCanBeResolved }
-									.flatMap { it.incoming.files.files }
-							)
+							proj.configurations.filter { it.isCanBeResolved }.forEach { config ->
+								try {
+									inputFiles.addAll(config.incoming.files.files)
+								} catch (_: Exception) {}
+							}
 						} catch (_: Exception) {}
 
 						inputFiles.toList().filter { it.exists() }.distinct().forEach { file ->
@@ -118,7 +118,8 @@ class SerializationPlugin : Plugin<Project> {
 			file.writeBytes(temp.readBytes())
 			temp.delete()
 			return bytes
-		} catch (_: Exception) {
+		} catch (e: Exception) {
+			println("[SerializationPlugin] Exception while stripping $file: ${e.message}")
 			if (temp.exists()) {
 				temp.delete()
 			}
