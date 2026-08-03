@@ -31,8 +31,8 @@ class SerializationPlugin : Plugin<Project> {
 
 						inputFiles.toList().filter { it.exists() }.distinct().forEach { file ->
 							if (file.isDirectory) {
-								if (file.absolutePath.contains("kotlinx-serialization-core")) {
-									val targetClassFile = File(file, "kotlinx/serialization/internal/PluginGeneratedSerialDescriptor.class")
+								if (!isUsagiSerializationLibrary(file)) {
+									val targetClassFile = File(file, TARGET_CLASS_NAME)
 									if (targetClassFile.exists()) {
 										backups[targetClassFile.absolutePath] = targetClassFile.readBytes()
 										targetClassFile.setWritable(true)
@@ -73,14 +73,20 @@ class SerializationPlugin : Plugin<Project> {
 		}
 	}
 
-	private fun stripTargetClass(file: File): ByteArray? {
-		if (!file.absolutePath.contains("kotlinx-serialization-core")) return null
+	private fun isUsagiSerializationLibrary(file: File): Boolean {
+		val path = file.absolutePath.replace('\\', '/')
+		return file.name.startsWith("library") ||
+				path.contains("com.github.UsagiApp.serialization") ||
+				path.contains("serialization/library") ||
+				path.contains("UsagiApp.serialization")
+	}
 
-		val targetClassName = "kotlinx/serialization/internal/PluginGeneratedSerialDescriptor.class"
+	private fun stripTargetClass(file: File): ByteArray? {
+		if (isUsagiSerializationLibrary(file)) return null
 
 		val entryExists = try {
 			ZipFile(file).use { zf ->
-				zf.getEntry(targetClassName) != null
+				zf.getEntry(TARGET_CLASS_NAME) != null
 			}
 		} catch (_: Exception) {
 			false
@@ -97,7 +103,7 @@ class SerializationPlugin : Plugin<Project> {
 					val entries = src.entries()
 					while (entries.hasMoreElements()) {
 						val entry = entries.nextElement()
-						if (entry.name != targetClassName) {
+						if (entry.name != TARGET_CLASS_NAME) {
 							out.putNextEntry(ZipEntry(entry.name))
 							src.getInputStream(entry).use { input ->
 								input.copyTo(out)
@@ -118,5 +124,9 @@ class SerializationPlugin : Plugin<Project> {
 			}
 			return null
 		}
+	}
+
+	companion object {
+		private const val TARGET_CLASS_NAME = "kotlinx/serialization/internal/PluginGeneratedSerialDescriptor.class"
 	}
 }
